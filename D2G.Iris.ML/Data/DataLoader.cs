@@ -64,12 +64,12 @@ namespace D2G.Iris.ML.Data
                 }
             }
 
-            ValidateLoadedData(results, modelType);
+            ValidateLoadedData(results, modelType, targetField);
             Console.WriteLine($"Loaded {results.Count} rows of Data.");
             return results;
         }
 
-        private void ValidateLoadedData(List<Dictionary<string, object>> data, ModelType modelType)
+        private void ValidateLoadedData(List<Dictionary<string, object>> data, ModelType modelType, string targetField)
         {
             if (!data.Any())
                 throw new InvalidOperationException("No data was loaded from the database.");
@@ -77,7 +77,7 @@ namespace D2G.Iris.ML.Data
             switch (modelType)
             {
                 case ModelType.BinaryClassification:
-                    var binaryValues = data.Select(d => Convert.ToBoolean(d["Label"])).Distinct().ToList();
+                    var binaryValues = data.Select(d => Convert.ToBoolean(d[targetField])).Distinct().ToList();
                     if (binaryValues.Count != 2)
                     {
                         throw new InvalidOperationException(
@@ -86,7 +86,7 @@ namespace D2G.Iris.ML.Data
                     break;
 
                 case ModelType.MultiClassClassification:
-                    var classLabels = data.Select(d => Convert.ToUInt32(d["Label"])).Distinct().OrderBy(x => x).ToList();
+                    var classLabels = data.Select(d => Convert.ToUInt32(d[targetField])).Distinct().OrderBy(x => x).ToList();
                     if (!classLabels.SequenceEqual(Enumerable.Range(0, classLabels.Count).Select(x => (uint)x)))
                     {
                         throw new InvalidOperationException(
@@ -96,7 +96,7 @@ namespace D2G.Iris.ML.Data
                     break;
 
                 case ModelType.Regression:
-                    var regressionValues = data.Select(d => Convert.ToSingle(d["Label"]));
+                    var regressionValues = data.Select(d => Convert.ToSingle(d[targetField]));
                     if (regressionValues.Any(float.IsInfinity) || regressionValues.Any(float.IsNaN))
                     {
                         throw new InvalidOperationException("Regression labels contain invalid values");

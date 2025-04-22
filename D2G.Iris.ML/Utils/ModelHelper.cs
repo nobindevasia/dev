@@ -30,11 +30,12 @@ namespace D2G.Iris.ML.Utils
                     },
                     new TrainingInfo
                     {
+
                         TrainerName = config.TrainingParameters.Algorithm,
                         NumberColumns = featureNames.Length + 1,
                         NumberRows = GetRowCount(dataView),
                         InputColumnNames = featureNames,
-                        OutputColumnNames = new[] { "Label" }
+                        OutputColumnNames = new[] { config.TargetField }
                     },
                     ConvertToStandardizedMetrics(metrics, config.ModelType),
                     config,
