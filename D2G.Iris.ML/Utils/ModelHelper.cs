@@ -116,7 +116,7 @@ namespace D2G.Iris.ML.Utils
                 path = Directory.GetCurrentDirectory();
             }
 
-            var filename = $"{config.ModelType}_{config.TrainingParameters.Algorithm}_ModelInfo.txt";
+            var filename = "ModelInfo.txt";
             using (StreamWriter writer = new StreamWriter(Path.Combine(path, filename)))
             {
                 writer.WriteLine($"*********** MODEL INFORMATION ***********\n");
