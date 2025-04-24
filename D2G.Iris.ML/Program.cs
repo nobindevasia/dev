@@ -28,18 +28,22 @@ namespace D2G.Iris.ML
                 var sqlHandler = new SqlHandler(config.Database.TableName);
                 sqlHandler.Connect(config.Database);
 
-                // Get enabled fields
+                // Get enabled fields for features (excluding the target field)
                 var enabledFields = config.InputFields
-                    .Where(f => f.IsEnabled)
+                    .Where(f => f.IsEnabled && f.TargetField == null)
                     .ToArray();
 
-                // Create or find target field definition
-                var targetField = new InputField
+                // Find target field definition from InputFields list
+                var targetField = config.InputFields
+                    .FirstOrDefault(f => f.TargetField != null);
+
+                if (targetField == null)
                 {
-                    Name = config.TargetField,
-                    IsEnabled = true,
-                    DataType = config.DataType ?? GetDefaultDataTypeForModelType(config.ModelType)
-                };
+                    throw new ArgumentException("Target field not found in the configuration");
+                }
+
+                // Set the target field name from the configuration
+                config.TargetField = targetField.TargetField;
 
                 // Create ML.NET context with fixed seed for reproducibility
                 var mlContext = new MLContext(seed: 42);
@@ -81,6 +85,16 @@ namespace D2G.Iris.ML
                     enabledFields,
                     config,
                     processedData);
+
+                // Save predictions to output table if specified
+                if (!string.IsNullOrEmpty(config.Database.OutputTableName))
+                {
+                    var predictions = model.Transform(processedData.Data);
+                    sqlHandler.SaveModelOutput(
+                        predictions,
+                        sqlHandler.GetConnectionString(),
+                        config.Database.OutputTableName);
+                }
 
                 Console.WriteLine("Pipeline completed successfully.");
             }

@@ -5,10 +5,11 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using D2G.Iris.ML.Core.Models;
 using D2G.Iris.ML.Core;
+using D2G.Iris.ML.Core.Enums;
 
 namespace D2G.Iris.ML.Configuration
 {
-    public class ConfigManager 
+    public class ConfigManager
     {
         public ModelConfig LoadConfiguration(string configPath)
         {
@@ -34,6 +35,16 @@ namespace D2G.Iris.ML.Configuration
 
                 ValidateConfiguration(modelConfig);
 
+                // Handle case-insensitive enum parsing for data balancing method
+                if (modelConfig.DataBalancing != null && modelConfig.DataBalancing.Method == 0)
+                {
+                    // Try to parse the method from string if it's not correctly deserialized
+                    if (Enum.TryParse<DataBalanceMethod>(modelConfig.DataBalancing.Method.ToString(), true, out var method))
+                    {
+                        modelConfig.DataBalancing.Method = method;
+                    }
+                }
+
                 return modelConfig;
             }
             catch (Exception ex)
@@ -57,7 +68,18 @@ namespace D2G.Iris.ML.Configuration
             if (string.IsNullOrEmpty(config.TrainingParameters.Algorithm))
                 throw new ArgumentException("Algorithm name is missing in training parameters");
 
+            // Find the target field from InputFields
+            var targetField = config.InputFields.Find(f => f.TargetField != null);
+            if (targetField == null)
+                throw new ArgumentException("Target field is missing in input fields");
+
+            config.TargetField = targetField.TargetField;
+
+            // Set data type for target field
+            config.DataType = targetField.DataType;
+
             ValidateFeatureEngineeringConfig(config.FeatureEngineering);
+            ValidateDataBalancingConfig(config.DataBalancing);
         }
 
         private void ValidateFeatureEngineeringConfig(FeatureEngineeringConfig config)
@@ -81,6 +103,24 @@ namespace D2G.Iris.ML.Configuration
                 case Core.Enums.FeatureSelectionMethod.Correlation:
                     if (config.MulticollinearityThreshold <= 0 || config.MulticollinearityThreshold >= 1)
                         throw new ArgumentException("Multicollinearity threshold must be between 0 and 1 for Correlation Selection");
+                    break;
+            }
+        }
+
+        private void ValidateDataBalancingConfig(DataBalancingConfig config)
+        {
+            if (config == null) return;
+
+            switch (config.Method)
+            {
+                case DataBalanceMethod.SMOTE:
+                case DataBalanceMethod.ADASYN:
+                    if (config.KNeighbors <= 0)
+                        throw new ArgumentException($"K neighbors must be greater than 0 for {config.Method}");
+                    if (config.UndersamplingRatio <= 0 || config.UndersamplingRatio > 1)
+                        throw new ArgumentException($"Undersampling ratio must be between 0 and 1 for {config.Method}");
+                    if (config.MinorityToMajorityRatio <= 0 || config.MinorityToMajorityRatio > 1)
+                        throw new ArgumentException($"Minority to majority ratio must be between 0 and 1 for {config.Method}");
                     break;
             }
         }

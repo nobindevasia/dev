@@ -118,15 +118,15 @@ namespace D2G.Iris.ML.Data
 
             // 8) Preview rows
             Console.WriteLine($">> Previewing first {previewRowCount} rows:");
-            var preview = dataView.Preview(maxRows: previewRowCount);
+            //var preview = dataView.Preview(maxRows: previewRowCount);
 
-            // Print header row
-            Console.WriteLine(string.Join("\t", preview.Schema.Select(c => c.Name)));
-            // Print data rows
-            foreach (var row in preview.RowView)
-            {
-                Console.WriteLine(string.Join("\t", row.Values.Select(v => v.Value?.ToString() ?? string.Empty)));
-            }
+            //// Print header row
+            //Console.WriteLine(string.Join("\t", preview.Schema.Select(c => c.Name)));
+            //// Print data rows
+            //foreach (var row in preview.RowView)
+            //{
+            //    Console.WriteLine(string.Join("\t", row.Values.Select(v => v.Value?.ToString() ?? string.Empty)));
+            //}
 
             Console.WriteLine("==========================================================");
             return dataView;

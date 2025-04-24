@@ -29,6 +29,9 @@ namespace D2G.Iris.ML.Data
             long originalCount = rawData.GetRowCount() ?? 0;
             long balancedCount = originalCount;
 
+            // Handle case-insensitive enum parsing for methods
+            EnsureEnumValuesAreParsed(config);
+
             // Create feature vector with appropriate data type awareness
             var featurePipeline = mlContext.Transforms
                 .Concatenate("Features", finalFeatureNames);
@@ -128,6 +131,29 @@ namespace D2G.Iris.ML.Data
                 DataBalancingExecutionOrder = config.DataBalancing.ExecutionOrder,
                 FeatureSelectionExecutionOrder = config.FeatureEngineering.ExecutionOrder
             };
+        }
+
+        private void EnsureEnumValuesAreParsed(ModelConfig config)
+        {
+            // Handle case-insensitive enum parsing for data balancing method
+            if (config.DataBalancing != null && config.DataBalancing.Method == 0)
+            {
+                if (Enum.TryParse<DataBalanceMethod>("Smote", true, out var balanceMethod))
+                {
+                    Console.WriteLine($"Parsed data balancing method from string: {balanceMethod}");
+                    config.DataBalancing.Method = balanceMethod;
+                }
+            }
+
+            // Handle case-insensitive enum parsing for feature selection method
+            if (config.FeatureEngineering != null && config.FeatureEngineering.Method == 0)
+            {
+                if (Enum.TryParse<FeatureSelectionMethod>("Correlation", true, out var featureMethod))
+                {
+                    Console.WriteLine($"Parsed feature selection method from string: {featureMethod}");
+                    config.FeatureEngineering.Method = featureMethod;
+                }
+            }
         }
 
         private dynamic CreateDataBalancer(DataBalanceMethod method)

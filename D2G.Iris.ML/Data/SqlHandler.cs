@@ -9,7 +9,7 @@ using D2G.Iris.ML.Core.Models;
 
 namespace D2G.Iris.ML.Data
 {
-    public class SqlHandler 
+    public class SqlHandler
     {
         private SqlConnectionStringBuilder _builder;
         private readonly string _tableName;
@@ -39,8 +39,14 @@ namespace D2G.Iris.ML.Data
             return _builder.ConnectionString;
         }
 
-       
-            }
+        public void SaveModelOutput(IDataView predictions, string connectionString, string outputTableName)
+        {
+            // Implementation for saving model outputs to SQL would go here
+            Console.WriteLine($"Saving prediction results to {outputTableName}...");
+            // This would typically involve:
+            // 1. Converting the IDataView to an enumerable
+            // 2. Creating a SQL table with the correct schema if it doesn't exist
+            // 3. Bulk inserting the data
         }
-
-  
+    }
+}

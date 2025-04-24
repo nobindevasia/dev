@@ -9,11 +9,10 @@ namespace D2G.Iris.ML.Core.Models
         public bool IsEnabled { get; set; }
         public string DataType { get; set; }
 
-        // If you want to pick up the “targetField” JSON object in the same array,
-        // you can make this nullable and JsonIgnore when it’s not present.
+        // If you want to pick up the "targetField" JSON object in the same array,
+        // you can make this nullable and JsonIgnore when it's not present.
         [JsonPropertyName("targetField")]
         public string TargetField { get; set; }
-    }
 
         public Type GetCSharpType()
         {

@@ -1,7 +1,6 @@
 ﻿using System.Collections.Generic;
 using D2G.Iris.ML.Core.Enums;
 
-
 namespace D2G.Iris.ML.Core.Models
 {
     public class ModelConfig
@@ -16,5 +15,7 @@ namespace D2G.Iris.ML.Core.Models
         public DataBalancingConfig DataBalancing { get; set; } = new DataBalancingConfig();
         public string TargetField { get; set; }
 
+        // Add this for target field data type handling
+        public string DataType { get; set; }
     }
 }
