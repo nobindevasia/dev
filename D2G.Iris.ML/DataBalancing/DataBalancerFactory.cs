@@ -12,12 +12,12 @@ namespace D2G.Iris.ML.DataBalancing
         {
             return method switch
             {
-                DataBalanceMethod.None => new NoDataBalancer(),
+                //DataBalanceMethod.None => new NoDataBalancer(),
                 DataBalanceMethod.SMOTE => new SmoteDataBalancer(),
-                DataBalanceMethod.ADASYN => new AdasynDataBalancer(),
+               // DataBalanceMethod.ADASYN => new AdasynDataBalancer(),
 
                 _ => throw new ArgumentException($"Unsupported data balance method: {method}")
             };
         }
-    }   
+    }
 }

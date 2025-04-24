@@ -1,7 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using Microsoft.Data.SqlClient;
+using System.Data;
 using System.Linq;
+using Microsoft.Data.SqlClient;
 using Microsoft.ML;
 using Microsoft.ML.Data;
 using D2G.Iris.ML.Core.Enums;
@@ -9,102 +10,131 @@ using D2G.Iris.ML.Core.Interfaces;
 
 namespace D2G.Iris.ML.Data
 {
-    public class DataLoader : IDataLoader
+    /// <summary>
+    /// Streams data from a SQL table directly into an ML.NET IDataView via DatabaseLoader,
+    /// tracks and prints how many rows were loaded, handles schema-qualified names,
+    /// and can print a preview of loaded rows.
+    /// </summary>
+    public class DatabaseDataLoader : IDataLoader
     {
-        public IEnumerable<Dictionary<string, object>> LoadDataFromSql(
+        private readonly MLContext _mlContext;
+        private IDataView _lastLoadedDataView;
+        private long? _lastLoadedRowCount;
+
+        /// <summary>
+        /// Allows injecting an MLContext (e.g. for testing) or uses a new one by default.
+        /// </summary>
+        public DatabaseDataLoader(MLContext mlContext = null)
+        {
+            _mlContext = mlContext ?? new MLContext();
+        }
+
+        /// <inheritdoc />
+        public IDataView LoadDataFromSql(
             string sqlConnectionString,
             string tableName,
-            IEnumerable<string> fields,
+            IEnumerable<string> featureColumns,
             ModelType modelType,
-            string targetField,
-            string whereSyntax = "")
+            string targetColumn,
+            string whereSyntax = "",
+            int previewRowCount = 5)
         {
-            Console.WriteLine("=============== Load Data ==============");
-            var finalFields = fields.Where(f => f != targetField).ToList();
-            var results = new List<Dictionary<string, object>>();
+            Console.WriteLine("=============== Loading Data into IDataView ===============");
 
-            using (var connection = new SqlConnection(sqlConnectionString))
+            // Handle schema-qualified table names: "schema.table"
+            string fullTableName = tableName.Contains('.')
+                ? string.Join('.', tableName.Split('.').Select(part => $"[{part}]"))
+                : $"[{tableName}]";
+
+            // 0) Get total row count via COUNT(*)
+            using (var conn = new SqlConnection(sqlConnectionString))
             {
-                connection.Open();
-
-                var fieldList = finalFields.Any() ? string.Join(", ", finalFields) : "*";
-                var sql = $"SELECT {fieldList}, [{targetField}] FROM {tableName}";
-                if (!string.IsNullOrEmpty(whereSyntax))
+                conn.Open();
+                var countSql = $"SELECT COUNT(*) FROM {fullTableName}" +
+                               (!string.IsNullOrWhiteSpace(whereSyntax)
+                                    ? $" WHERE {whereSyntax}" : string.Empty);
+                using (var countCmd = new SqlCommand(countSql, conn))
                 {
-                    sql += $" WHERE {whereSyntax}";
-                }
-
-                using (var command = new SqlCommand(sql, connection))
-                {
-                    command.CommandTimeout = 120;
-                    using (var reader = command.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            var record = new Dictionary<string, object>();
-
-                            foreach (var field in fields)
-                            {
-                                var value = reader[field];
-                                record[field] = value == DBNull.Value ? 0.0f : Convert.ToSingle(value);
-                            }
-
-                            var targetValue = reader[targetField];
-                            record[targetField] = modelType switch
-                            {
-                                ModelType.BinaryClassification => Convert.ToInt64(targetValue) != 0,
-                                ModelType.MultiClassClassification => Convert.ToUInt32(targetValue),
-                                ModelType.Regression => targetValue == DBNull.Value ? 0.0f : Convert.ToSingle(targetValue),
-                                _ => Convert.ToInt64(targetValue) != 0
-                            };
-
-                            results.Add(record);
-                        }
-                    }
+                    _lastLoadedRowCount = Convert.ToInt64(countCmd.ExecuteScalar());
                 }
             }
 
-            ValidateLoadedData(results, modelType, targetField);
-            Console.WriteLine($"Loaded {results.Count} rows of Data.");
-            return results;
-        }
+            // 1) Build the SELECT clause
+            var allCols = featureColumns.Concat(new[] { targetColumn })
+                                        .Select(c => $"[{c}]");
+            var sql = $"SELECT {string.Join(", ", allCols)} FROM {fullTableName}" +
+                      (!string.IsNullOrWhiteSpace(whereSyntax)
+                            ? $" WHERE {whereSyntax}" : string.Empty);
 
-        private void ValidateLoadedData(List<Dictionary<string, object>> data, ModelType modelType, string targetField)
-        {
-            if (!data.Any())
-                throw new InvalidOperationException("No data was loaded from the database.");
-
-            switch (modelType)
+            // 2) Define loader schema (feature columns)
+            var loaderCols = new List<DatabaseLoader.Column>();
+            int idx = 0;
+            foreach (var feat in featureColumns)
             {
-                case ModelType.BinaryClassification:
-                    var binaryValues = data.Select(d => Convert.ToBoolean(d[targetField])).Distinct().ToList();
-                    if (binaryValues.Count != 2)
-                    {
-                        throw new InvalidOperationException(
-                            $"Binary classification requires exactly two distinct label values. Found {binaryValues.Count} values.");
-                    }
-                    break;
-
-                case ModelType.MultiClassClassification:
-                    var classLabels = data.Select(d => Convert.ToUInt32(d[targetField])).Distinct().OrderBy(x => x).ToList();
-                    if (!classLabels.SequenceEqual(Enumerable.Range(0, classLabels.Count).Select(x => (uint)x)))
-                    {
-                        throw new InvalidOperationException(
-                            "Multiclass labels must be consecutive integers starting from 0. " +
-                            $"Found values: {string.Join(", ", classLabels)}");
-                    }
-                    break;
-
-                case ModelType.Regression:
-                    var regressionValues = data.Select(d => Convert.ToSingle(d[targetField]));
-                    if (regressionValues.Any(float.IsInfinity) || regressionValues.Any(float.IsNaN))
-                    {
-                        throw new InvalidOperationException("Regression labels contain invalid values");
-                    }                
-                    break;
+                loaderCols.Add(new DatabaseLoader.Column(
+                    name: feat,
+                    dbType: DbType.Single,
+                    index: idx++
+                ));
             }
+
+            // 3) Add label column with numeric DbType (to match actual SQL type)
+            //    Use Int64 to accommodate SQL bigint, then transform downstream as needed
+            DbType labelDbType = modelType switch
+            {
+                ModelType.BinaryClassification => DbType.Int64,
+                ModelType.MultiClassClassification => DbType.Int64,
+                ModelType.Regression => DbType.Single,
+                _ => DbType.Int64
+            };
+            loaderCols.Add(new DatabaseLoader.Column(
+                name: targetColumn,
+                dbType: labelDbType,
+                index: idx
+            ));
+
+            // 4) Create DatabaseLoader and source
+            var dbLoader = _mlContext.Data.CreateDatabaseLoader(loaderCols.ToArray());
+            var dbSource = new DatabaseSource(
+                providerFactory: SqlClientFactory.Instance,
+                connectionString: sqlConnectionString,
+                commandText: sql
+            );
+
+            // 5) Load IDataView and cache
+            var dataView = dbLoader.Load(dbSource);
+            _lastLoadedDataView = dataView;
+
+            // 6) Print row count
+            Console.WriteLine($">> Loaded {_lastLoadedRowCount ?? 0} rows of data.");
+
+            // 7) Print schema
+            Console.WriteLine(">> Loaded Schema:");
+            foreach (var col in dataView.Schema)
+                Console.WriteLine($"   • {col.Name} ({col.Type.RawType.Name})");
+
+            // 8) Preview rows
+            Console.WriteLine($">> Previewing first {previewRowCount} rows:");
+            var preview = dataView.Preview(maxRows: previewRowCount);
+
+            // Print header row
+            Console.WriteLine(string.Join("\t", preview.Schema.Select(c => c.Name)));
+            // Print data rows
+            foreach (var row in preview.RowView)
+            {
+                Console.WriteLine(string.Join("\t", row.Values.Select(v => v.Value?.ToString() ?? string.Empty)));
+            }
+
+            Console.WriteLine("==========================================================");
+            return dataView;
         }
 
-       
+        /// <summary>
+        /// Returns the number of rows in the most recently loaded dataset.
+        /// </summary>
+        public long? GetLastLoadedRowCount()
+        {
+            return _lastLoadedRowCount;
+        }
     }
 }

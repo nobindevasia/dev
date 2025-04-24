@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Data;
 using Microsoft.Data.SqlClient;
 using System.Linq;
+using Microsoft.ML;
 using D2G.Iris.ML.Core.Enums;
 using D2G.Iris.ML.Core.Interfaces;
 using D2G.Iris.ML.Core.Models;
-using Microsoft.Identity.Client;
 
 namespace D2G.Iris.ML.Data
 {
@@ -46,7 +46,6 @@ namespace D2G.Iris.ML.Data
             string[] featureNames,
             string targetField,
             ModelType modelType)
-            
         {
             var finalFeatureNames = featureNames.Where(f => f != targetField).ToArray();
 
@@ -80,7 +79,6 @@ namespace D2G.Iris.ML.Data
                     try
                     {
                         command.ExecuteNonQuery();
-                        Console.WriteLine("\n");
                         Console.WriteLine($"Table {tableName} dropped and recreated successfully");
                     }
                     catch (SqlException ex)
@@ -111,7 +109,7 @@ namespace D2G.Iris.ML.Data
                         _ => typeof(float)
                     };
                     dataTable.Columns.Add(targetField, targetColumnClrType);
-                    
+
                     foreach (var row in processedData)
                     {
                         var dataRow = dataTable.NewRow();
@@ -127,7 +125,7 @@ namespace D2G.Iris.ML.Data
                     {
                         bulkCopy.ColumnMappings.Add(column.ToString(), column.ToString());
                     }
-                    
+
                     try
                     {
                         bulkCopy.WriteToServer(dataTable);
@@ -139,6 +137,48 @@ namespace D2G.Iris.ML.Data
                     }
                 }
             }
+        }
+
+        // New method to directly save an IDataView to a SQL table
+        public void SaveDataViewToTable(
+            MLContext mlContext,
+            IDataView dataView,
+            string tableName,
+            string[] featureNames,
+            string targetField,
+            ModelType modelType)
+        {
+            // Convert IDataView to a list of dictionaries
+            var processedData = new List<Dictionary<string, object>>();
+
+            // Create a preview of the data
+            var dataPreview = mlContext.Data.CreateEnumerable<object>(dataView, reuseRowObject: false);
+
+            foreach (var row in dataPreview)
+            {
+                var dict = new Dictionary<string, object>();
+                var properties = row.GetType().GetProperties();
+
+                foreach (var feature in featureNames)
+                {
+                    var property = properties.FirstOrDefault(p => p.Name == feature);
+                    if (property != null)
+                    {
+                        dict[feature] = property.GetValue(row);
+                    }
+                }
+
+                var targetProperty = properties.FirstOrDefault(p => p.Name == targetField);
+                if (targetProperty != null)
+                {
+                    dict[targetField] = targetProperty.GetValue(row);
+                }
+
+                processedData.Add(dict);
+            }
+
+            // Save the data using the existing method
+            SaveProcessedDataToTable(tableName, processedData, featureNames, targetField, modelType);
         }
     }
 }

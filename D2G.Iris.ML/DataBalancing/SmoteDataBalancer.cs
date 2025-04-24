@@ -9,7 +9,7 @@ using D2G.Iris.ML.DataBalancing;
 
 namespace D2G.Iris.ML.DataBalancing
 {
-    public class SmoteDataBalancer : BaseDataBalancer
+    public class SmoteDataBalancer 
     {
         public override async Task<List<Dictionary<string, object>>> BalanceDataset(
             List<Dictionary<string, object>> data,

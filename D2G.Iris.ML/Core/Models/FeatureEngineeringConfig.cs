@@ -11,5 +11,7 @@ namespace D2G.Iris.ML.Core.Models
         public int MaxFeatures { get; set; }
         public double MinImprovement { get; set; }
         public double MulticollinearityThreshold { get; set; }
+
+
     }
 }

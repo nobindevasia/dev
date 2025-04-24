@@ -13,7 +13,7 @@ using D2G.Iris.ML.FeatureEngineering;
 
 namespace D2G.Iris.ML.FeatureEngineering
 {
-    public class CorrelationFeatureSelector : BaseFeatureSelector
+    public class CorrelationFeatureSelector 
     {
         public CorrelationFeatureSelector(MLContext mlContext) : base(mlContext)
         {
@@ -21,7 +21,7 @@ namespace D2G.Iris.ML.FeatureEngineering
 
         public override Task<(float[][] features, string[] featureNames, string report)> SelectFeatures(
             List<Dictionary<string, object>> data,
-            string[] candidateFeatures,     
+            string[] candidateFeatures,
             ModelType modelType,
             string targetField,
             FeatureEngineeringConfig config)
@@ -71,7 +71,7 @@ namespace D2G.Iris.ML.FeatureEngineering
                     _report.AppendLine($"{feature,-40} | {targetCorrelations[feature]:F4}");
                 }
 
-                
+
                 foreach (var feature in sortedFeatures)
                 {
                     if (selectedFeatures.Count >= config.MaxFeatures)

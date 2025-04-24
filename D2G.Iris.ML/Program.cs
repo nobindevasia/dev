@@ -1,6 +1,5 @@
 ﻿using Microsoft.ML;
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -34,17 +33,20 @@ namespace D2G.Iris.ML
                     .Select(f => f.Name)
                     .ToArray();
 
-                var dataLoader = new DataLoader();
+                // Create ML.NET context with a fixed random seed for reproducibility
+                var mlContext = new MLContext(seed: 42);
+
+                // Load data from SQL 
+                var dataLoader = new DatabaseDataLoader();
                 var rawData = dataLoader.LoadDataFromSql(
                     sqlHandler.GetConnectionString(),
                     config.Database.TableName,
                     enabledFields,
                     config.ModelType,
                     config.TargetField,
-                    config.Database.WhereClause).ToList();
+                    config.Database.WhereClause);
 
-                var mlContext = new MLContext(seed: 42);
-
+                // Process the data
                 var dataProcessor = new DataProcessor();
                 var processedData = await dataProcessor.ProcessData(
                     mlContext,
@@ -52,19 +54,15 @@ namespace D2G.Iris.ML
                     enabledFields,
                     config,
                     sqlHandler);
-        
-                var modelTrainerFactory = new ModelTrainerFactory(mlContext);
+
+                //Train the model
+               var modelTrainerFactory = new ModelTrainerFactory(mlContext);
                 var modelTrainer = modelTrainerFactory.CreateTrainer(config.ModelType);
 
-                var dataView = await modelTrainer.PrepareDataView(
+                // The data is already prepared through the pipeline
+                var model = await modelTrainer.TrainModel(
                     mlContext,
-                    processedData,
-                    processedData.FeatureNames,
-                    config.TargetField);
-
-                await modelTrainer.TrainModel(
-                    mlContext,
-                    dataView,
+                    processedData.Data,
                     processedData.FeatureNames,
                     config,
                     processedData);
