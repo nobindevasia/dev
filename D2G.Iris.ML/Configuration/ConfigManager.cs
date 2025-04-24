@@ -3,13 +3,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using D2G.Iris.ML.Core.Interfaces;
 using D2G.Iris.ML.Core.Models;
 using D2G.Iris.ML.Core;
 
 namespace D2G.Iris.ML.Configuration
 {
-    public class ConfigManager : IConfigManager
+    public class ConfigManager 
     {
         public ModelConfig LoadConfiguration(string configPath)
         {

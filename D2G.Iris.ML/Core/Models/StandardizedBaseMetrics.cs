@@ -3,10 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using D2G.Iris.ML.Core.Interfaces;
 namespace D2G.Iris.ML.Core.Models
 {
-    public abstract class StandardizedBaseMetrics : IStandardizedBaseMetrics
+    public abstract class StandardizedBaseMetrics 
     {
         public virtual string CreateStandardizedMetricsMsg()
         {

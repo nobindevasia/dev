@@ -1,20 +1,26 @@
-﻿using System.Linq;
+﻿using System;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.ML;
 using D2G.Iris.ML.Core.Enums;
 using D2G.Iris.ML.Core.Models;
-using D2G.Iris.ML.FeatureEngineering;
 
 namespace D2G.Iris.ML.FeatureEngineering
 {
-    public class NoFeatureSelector
+    public class NoFeatureSelector 
     {
-        public NoFeatureSelector(MLContext mlContext) : base(mlContext)
+        private readonly MLContext _mlContext;
+        private readonly StringBuilder _report;
+
+        public NoFeatureSelector(MLContext mlContext)
         {
+            _mlContext = mlContext;
+            _report = new StringBuilder();
         }
 
-        public override Task<(float[][] features, string[] featureNames, string report)> SelectFeatures(
-            List<Dictionary<string, object>> data,
+        public Task<(IDataView transformedData, string[] selectedFeatures, string report)> SelectFeatures(
+            MLContext mlContext,
+            IDataView data,
             string[] candidateFeatures,
             ModelType modelType,
             string targetField,
@@ -30,10 +36,13 @@ namespace D2G.Iris.ML.FeatureEngineering
                 _report.AppendLine($"- {feature}");
             }
 
-            var filteredFeatures = FilterTargetField(candidateFeatures, targetField);
-            var features = ConvertToFeatureMatrix(data, filteredFeatures);
-            return Task.FromResult((features, filteredFeatures, _report.ToString()));
+            // Create pipeline to concatenate features
+            var pipeline = mlContext.Transforms
+                .Concatenate("Features", candidateFeatures);
 
+            var transformedData = pipeline.Fit(data).Transform(data);
+
+            return Task.FromResult((transformedData, candidateFeatures, _report.ToString()));
         }
     }
 }

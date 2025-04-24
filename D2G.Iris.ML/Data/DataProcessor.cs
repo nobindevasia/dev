@@ -4,38 +4,40 @@ using System.Threading.Tasks;
 using Microsoft.ML;
 using Microsoft.ML.Data;
 using D2G.Iris.ML.Core.Enums;
-using D2G.Iris.ML.Core.Interfaces;
 using D2G.Iris.ML.Core.Models;
 using D2G.Iris.ML.DataBalancing;
 using D2G.Iris.ML.FeatureEngineering;
 
 namespace D2G.Iris.ML.Data
 {
-    /// <summary>
-    /// Orchestrates data balancing, feature selection, and saving of a pre-loaded IDataView.
-    /// </summary>
-    public class DataProcessor 
+    public class DataProcessor
     {
-        /// <inheritdoc />
         public async Task<ProcessedData> ProcessData(
             MLContext mlContext,
             IDataView rawData,
             string[] enabledFields,
-            ModelConfig config,
-            ISqlHandler sqlHandler)
+            ModelConfig config
+            )
         {
             Console.WriteLine("\n=============== Processing Data ===============");
 
             IDataView transformedData = rawData;
-            string[] finalFeatureNames = enabledFields;
+            string[] finalFeatureNames = enabledFields.Where(f => f != config.TargetField).ToArray();
             string selectionReport = string.Empty;
 
             // Original row count
             long originalCount = rawData.GetRowCount() ?? 0;
             long balancedCount = originalCount;
 
+            // Create feature vector
+            var featurePipeline = mlContext.Transforms
+                .Concatenate("Features", finalFeatureNames);
+
+            transformedData = featurePipeline.Fit(rawData).Transform(rawData);
+
             // Determine execution order
             bool balancingFirst = config.DataBalancing.ExecutionOrder <= config.FeatureEngineering.ExecutionOrder;
+
             if (config.DataBalancing.Method != DataBalanceMethod.None &&
                 config.FeatureEngineering.Method != FeatureSelectionMethod.None)
             {
@@ -50,12 +52,11 @@ namespace D2G.Iris.ML.Data
                 // Data Balancing
                 if (config.DataBalancing.Method != DataBalanceMethod.None)
                 {
-                    var balancer = new DataBalancerFactory()
-                        .CreateBalancer(config.DataBalancing.Method);
+                    var balancer = new SmoteDataBalancer();
                     transformedData = await balancer.BalanceDataset(
                         mlContext,
                         transformedData,
-                        enabledFields,
+                        finalFeatureNames,
                         config.DataBalancing,
                         config.TargetField);
                     balancedCount = transformedData.GetRowCount() ?? originalCount;
@@ -65,27 +66,19 @@ namespace D2G.Iris.ML.Data
                 // Feature Selection
                 if (config.FeatureEngineering.Method != FeatureSelectionMethod.None)
                 {
-                    var selector = new FeatureSelectorFactory(mlContext)
-                        .CreateSelector(config.FeatureEngineering.Method);
+                    var selector = new CorrelationFeatureSelector(mlContext); 
                     var result = await selector.SelectFeatures(
                         mlContext,
                         transformedData,
-                        enabledFields,
+                        finalFeatureNames,
                         config.ModelType,
                         config.TargetField,
                         config.FeatureEngineering);
+
                     transformedData = result.transformedData;
-                    finalFeatureNames = result.featureNames;
+                    finalFeatureNames = result.selectedFeatures;
                     selectionReport = result.report;
                     Console.WriteLine(selectionReport);
-                }
-                else
-                {
-                    transformedData = mlContext.Transforms
-                        .Concatenate("Features", enabledFields)
-                        .Fit(transformedData)
-                        .Transform(transformedData);
-                    selectionReport = "Feature selection disabled.";
                 }
             }
             else
@@ -93,17 +86,17 @@ namespace D2G.Iris.ML.Data
                 // Feature Selection first
                 if (config.FeatureEngineering.Method != FeatureSelectionMethod.None)
                 {
-                    var selector = new FeatureSelectorFactory(mlContext)
-                        .CreateSelector(config.FeatureEngineering.Method);
+                    var selector = new CorrelationFeatureSelector(mlContext);
                     var result = await selector.SelectFeatures(
                         mlContext,
-                        rawData,
-                        enabledFields,
+                        transformedData,
+                        finalFeatureNames,
                         config.ModelType,
                         config.TargetField,
                         config.FeatureEngineering);
+
                     transformedData = result.transformedData;
-                    finalFeatureNames = result.featureNames;
+                    finalFeatureNames = result.selectedFeatures;
                     selectionReport = result.report;
                     Console.WriteLine(selectionReport);
                 }
@@ -111,8 +104,7 @@ namespace D2G.Iris.ML.Data
                 // Then Data Balancing
                 if (config.DataBalancing.Method != DataBalanceMethod.None)
                 {
-                    var balancer = new DataBalancerFactory()
-                        .CreateBalancer(config.DataBalancing.Method);
+                    var balancer = new SmoteDataBalancer();
                     transformedData = await balancer.BalanceDataset(
                         mlContext,
                         transformedData,
@@ -125,29 +117,25 @@ namespace D2G.Iris.ML.Data
             }
 
             // Save to SQL if configured
-            if (!string.IsNullOrEmpty(config.Database.OutputTableName))
-            {
-                try
-                {
-                    // Ensure connection
-                    sqlHandler.Connect(config.Database);
-                    var connString = sqlHandler.GetConnectionString();
+            //if (!string.IsNullOrEmpty(config.Database.OutputTableName))
+            //{
+            //    try
+            //    {
+            //        sqlHandler.SaveDataViewToTable(
+            //            mlContext,
+            //            transformedData,
+            //            config.Database.OutputTableName,
+            //            finalFeatureNames,
+            //            config.TargetField,
+            //            config.ModelType);
 
-                    sqlHandler.SaveDataViewToTable(
-                        mlContext,
-                        transformedData,
-                        config.Database.OutputTableName,
-                        finalFeatureNames,
-                        config.TargetField,
-                        config.ModelType);
-
-                    Console.WriteLine($"Processed data saved to: {config.Database.OutputTableName}");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error saving processed data: {ex.Message}");
-                }
-            }
+            //        Console.WriteLine($"Processed data saved to: {config.Database.OutputTableName}");
+            //    }
+            //    catch (Exception ex)
+            //    {
+            //        Console.WriteLine($"Error saving processed data: {ex.Message}");
+            //    }
+            //}
 
             return new ProcessedData
             {

@@ -6,7 +6,6 @@ using Microsoft.Data.SqlClient;
 using Microsoft.ML;
 using Microsoft.ML.Data;
 using D2G.Iris.ML.Core.Enums;
-using D2G.Iris.ML.Core.Interfaces;
 
 namespace D2G.Iris.ML.Data
 {
@@ -15,7 +14,7 @@ namespace D2G.Iris.ML.Data
     /// tracks and prints how many rows were loaded, handles schema-qualified names,
     /// and can print a preview of loaded rows.
     /// </summary>
-    public class DatabaseDataLoader : IDataLoader
+    public class DatabaseDataLoader 
     {
         private readonly MLContext _mlContext;
         private IDataView _lastLoadedDataView;

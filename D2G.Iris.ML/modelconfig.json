@@ -2,8 +2,8 @@
   "modelConfig": {
     "author": "Nobin Devasia",
     "description": "Model for Agenitor 408",
-    "modelType": "Regression",
-    "targetField": "ActivePower",
+    "modelType": "BinaryClassification",
+    "targetField": "Label",
 
     "database": {
       "server": "sim-01-02",
@@ -22,7 +22,7 @@
     },
 
     "featureEngineering": {
-      "method": "Correlation",
+      "method": "None",
       "executionOrder": 2,
       "numberOfComponents": 2,
       "maxFeatures": 2,

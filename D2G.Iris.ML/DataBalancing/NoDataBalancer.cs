@@ -1,15 +1,15 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.ML;
 using D2G.Iris.ML.Core.Models;
-using D2G.Iris.ML.DataBalancing;
 
 namespace D2G.Iris.ML.DataBalancing
 {
-    public class NoDataBalancer 
+    public class NoDataBalancer
     {
-        public override Task<List<Dictionary<string, object>>> BalanceDataset(
-            List<Dictionary<string, object>> data,
+        public Task<IDataView> BalanceDataset(
+            MLContext mlContext,
+            IDataView data,
             string[] featureNames,
             DataBalancingConfig config,
             string targetField)

@@ -1,21 +1,75 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.ML;
+using Microsoft.ML.Data;
 using D2G.Iris.ML.Core.Models;
-using D2G.Iris.ML.DataBalancing;
 
 namespace D2G.Iris.ML.DataBalancing
 {
     public class SmoteDataBalancer 
     {
-        public override async Task<List<Dictionary<string, object>>> BalanceDataset(
-            List<Dictionary<string, object>> data,
+        public async Task<IDataView> BalanceDataset(
+            MLContext mlContext,
+            IDataView data,
             string[] featureNames,
             DataBalancingConfig config,
             string targetField)
+        {
+            ValidateConfig(config);
+            Console.WriteLine("=============== Balancing Dataset with SMOTE ===============");
+
+            // Convert IDataView to enumerable for SMOTE processing
+            var dataEnumerable = mlContext.Data.CreateEnumerable<FeatureVector>(
+                data, reuseRowObject: false);
+
+            var minorityClass = new List<float[]>();
+            var majorityClass = new List<float[]>();
+
+            // Separate minority and majority classes
+            foreach (var row in dataEnumerable)
+            {
+                if (row.Label == 1) // Instead of if(row.Label)
+                    minorityClass.Add(row.Features);
+                else
+                    majorityClass.Add(row.Features);
+            }
+
+            // Ensure minority class is the smaller one
+            if (minorityClass.Count > majorityClass.Count)
+            {
+                var temp = minorityClass;
+                minorityClass = majorityClass;
+                majorityClass = temp;
+            }
+
+            // Undersample majority class
+            var random = new Random(42);
+            int undersampledMajorityCount = (int)(majorityClass.Count * config.UndersamplingRatio);
+            var undersampledMajority = ShuffleMajorityClass(majorityClass, undersampledMajorityCount, random);
+
+            // Generate synthetic samples
+            int targetMinorityCount = (int)(undersampledMajorityCount * config.MinorityToMajorityRatio);
+            int syntheticCount = Math.Max(0, targetMinorityCount - minorityClass.Count);
+
+            var syntheticSamples = await GenerateSyntheticSamples(
+                minorityClass,
+                syntheticCount,
+                config.KNeighbors,
+                random);
+
+            // Combine all samples
+            var balancedFeatures = new List<FeatureVector>();
+            balancedFeatures.AddRange(undersampledMajority.Select(f => new FeatureVector { Features = f, Label = 0 }));
+            balancedFeatures.AddRange(minorityClass.Select(f => new FeatureVector { Features = f, Label = 1 }));
+            balancedFeatures.AddRange(syntheticSamples.Select(f => new FeatureVector { Features = f, Label = 1 }));
+
+            // Convert back to IDataView
+            return mlContext.Data.LoadFromEnumerable(balancedFeatures);
+        }
+
+        private void ValidateConfig(DataBalancingConfig config)
         {
             if (config.UndersamplingRatio <= 0 || config.UndersamplingRatio > 1)
                 throw new ArgumentException("Undersampling ratio must be between 0 and 1");
@@ -25,73 +79,20 @@ namespace D2G.Iris.ML.DataBalancing
 
             if (config.KNeighbors < 1)
                 throw new ArgumentException("K should be greater than 0");
-
-            Console.WriteLine("=============== Balancing Dataset with SMOTE ===============");
-            var timer = System.Diagnostics.Stopwatch.StartNew();
-            var random = new Random(42);
-
-            // Group data by label
-            var groupedData = data.GroupBy(x => Convert.ToBoolean(x[targetField]))
-                                .OrderBy(g => g.Count())
-                                .ToList();
-
-            if (groupedData.Count != 2)
-                throw new ArgumentException("Dataset must contain exactly two classes");
-
-            var minorityClass = groupedData[0].ToList();
-            var majorityClass = groupedData[1].ToList();
-
-            // Undersample majority class
-            int undersampledMajorityCount = (int)(majorityClass.Count * config.UndersamplingRatio);
-            var undersampledMajority = ShuffleMajorityClass(majorityClass, undersampledMajorityCount, random);
-
-            // Calculate synthetic samples needed
-            int targetMinorityCount = (int)(undersampledMajorityCount * config.MinorityToMajorityRatio);
-            int syntheticCount = Math.Max(0, targetMinorityCount - minorityClass.Count);
-
-            var result = new List<Dictionary<string, object>>();
-            result.AddRange(undersampledMajority);
-            result.AddRange(minorityClass);
-
-            if (syntheticCount > 0)
-            {
-                Console.WriteLine($"Generating {syntheticCount} synthetic samples using k={config.KNeighbors}");
-                var syntheticSamples = await GenerateSyntheticSamples(
-                    minorityClass,
-                    syntheticCount,
-                    featureNames,
-                    config.KNeighbors,
-                    random);
-                result.AddRange(syntheticSamples);
-            }
-
-            timer.Stop();
-            LogResults(
-                data.Count,
-                minorityClass.Count,
-                syntheticCount,
-                majorityClass.Count,
-                undersampledMajority.Count,
-                result.Count,
-                timer.ElapsedMilliseconds);
-
-            return result;
         }
 
-        private static List<Dictionary<string, object>> ShuffleMajorityClass(
-            List<Dictionary<string, object>> samples,
-            int targetCount,
-            Random random)
+        private List<float[]> ShuffleMajorityClass(List<float[]> samples, int targetCount, Random random)
         {
-            var indices = new int[samples.Count];
-            for (int i = 0; i < indices.Length; i++)
-                indices[i] = i;
+            var indices = Enumerable.Range(0, samples.Count).ToList();
+            int n = indices.Count;
 
-            // Fisher-Yates shuffle
-            for (int i = indices.Length - 1; i > 0; i--)
+            while (n > 1)
             {
-                int j = random.Next(i + 1);
-                (indices[i], indices[j]) = (indices[j], indices[i]);
+                n--;
+                int k = random.Next(n + 1);
+                int temp = indices[k];
+                indices[k] = indices[n];
+                indices[n] = temp;
             }
 
             return indices.Take(targetCount)
@@ -99,61 +100,46 @@ namespace D2G.Iris.ML.DataBalancing
                          .ToList();
         }
 
-        private static async Task<List<Dictionary<string, object>>> GenerateSyntheticSamples(
-            List<Dictionary<string, object>> minoritySamples,
+        private async Task<List<float[]>> GenerateSyntheticSamples(
+            List<float[]> minoritySamples,
             int syntheticCount,
-            string[] featureNames,
             int k,
             Random random)
         {
-            // Convert samples to feature arrays for faster processing
-            var features = minoritySamples.Select(x =>
-                featureNames.Select(f => Convert.ToSingle(x[f])).ToArray()
-            ).ToList();
+            if (syntheticCount <= 0) return new List<float[]>();
 
-            // Calculate samples per minority instance
-            int samplesPerInstance = (int)Math.Ceiling((double)syntheticCount / minoritySamples.Count);
-            var syntheticSamples = new ConcurrentBag<Dictionary<string, object>>();
-
-            // Pre-compute nearest neighbors for each sample
-            var nearestNeighbors = new Dictionary<int, int[]>();
-            for (int i = 0; i < features.Count; i++)
-            {
-                nearestNeighbors[i] = FindKNearestNeighbors(features, features[i], i, k);
-            }
+            var synthetic = new List<float[]>();
+            var samplesPerInstance = (int)Math.Ceiling((double)syntheticCount / minoritySamples.Count);
 
             await Task.Run(() =>
             {
-                Parallel.For(0, minoritySamples.Count, i =>
+                for (int i = 0; i < minoritySamples.Count && synthetic.Count < syntheticCount; i++)
                 {
-                    var localRandom = new Random(random.Next());
-                    var baseFeatures = features[i];
-                    var neighbors = nearestNeighbors[i];
+                    var neighbors = FindKNearestNeighbors(minoritySamples, minoritySamples[i], i, k);
 
-                    for (int j = 0; j < samplesPerInstance && syntheticSamples.Count < syntheticCount; j++)
+                    for (int j = 0; j < samplesPerInstance && synthetic.Count < syntheticCount; j++)
                     {
-                        var neighborIdx = neighbors[localRandom.Next(neighbors.Length)];
-                        var neighborFeatures = features[neighborIdx];
-
-                        var syntheticFeatures = InterpolateFeatures(baseFeatures, neighborFeatures, localRandom);
-                        var syntheticSample = CreateSyntheticSample(syntheticFeatures, featureNames, minoritySamples[0]["Label"]);
-
-                        syntheticSamples.Add(syntheticSample);
+                        var neighborIdx = random.Next(neighbors.Length);
+                        var syntheticSample = InterpolateFeatures(
+                            minoritySamples[i],
+                            minoritySamples[neighbors[neighborIdx]],
+                            random);
+                        synthetic.Add(syntheticSample);
                     }
-                });
+                }
             });
 
-            return syntheticSamples.Take(syntheticCount).ToList();
+            return synthetic;
         }
 
-        private static int[] FindKNearestNeighbors(List<float[]> features, float[] target, int excludeIndex, int k)
+        private int[] FindKNearestNeighbors(List<float[]> samples, float[] target, int excludeIndex, int k)
         {
             var distances = new List<(int index, float distance)>();
 
-            for (int i = 0; i < features.Count; i++)
+            for (int i = 0; i < samples.Count; i++)
             {
                 if (i == excludeIndex) continue;
-                distances.Add((i, EuclideanDistance(features[i], target)));
+                distances.Add((i, EuclideanDistance(samples[i], target)));
             }
 
             return distances.OrderBy(x => x.distance)
@@ -162,7 +148,7 @@ namespace D2G.Iris.ML.DataBalancing
                           .ToArray();
         }
 
-        private static float EuclideanDistance(float[] a, float[] b)
+        private float EuclideanDistance(float[] a, float[] b)
         {
             float sum = 0;
             for (int i = 0; i < a.Length; i++)
@@ -173,7 +159,7 @@ namespace D2G.Iris.ML.DataBalancing
             return MathF.Sqrt(sum);
         }
 
-        private static float[] InterpolateFeatures(float[] a, float[] b, Random random)
+        private float[] InterpolateFeatures(float[] a, float[] b, Random random)
         {
             float ratio = (float)random.NextDouble();
             var result = new float[a.Length];
@@ -186,37 +172,11 @@ namespace D2G.Iris.ML.DataBalancing
             return result;
         }
 
-        private static Dictionary<string, object> CreateSyntheticSample(
-            float[] features,
-            string[] featureNames,
-            object label)
+        private class FeatureVector
         {
-            var sample = new Dictionary<string, object>();
-            for (int i = 0; i < featureNames.Length; i++)
-            {
-                sample[featureNames[i]] = features[i];
-            }
-            sample["Label"] = label;
-            return sample;
-        }
-
-        private static void LogResults(
-            int totalSamples,
-            int originalMinority,
-            int synthetic,
-            int originalMajority,
-            int undersampledMajority,
-            int finalCount,
-            long elapsedMs)
-        {
-            Console.WriteLine($"\nBalancing Results ({elapsedMs}ms):");
-            Console.WriteLine($"Original dataset: {totalSamples:N0} samples");
-            Console.WriteLine($"Minority class (original): {originalMinority:N0} samples");
-            Console.WriteLine($"Minority class (after SMOTE): {(originalMinority + synthetic):N0} samples");
-            Console.WriteLine($"Majority class (original): {originalMajority:N0} samples");
-            Console.WriteLine($"Majority class (after undersampling): {undersampledMajority:N0} samples");
-            Console.WriteLine($"Balanced dataset: {finalCount:N0} samples");
-            Console.WriteLine($"Final ratio: {(originalMinority + synthetic) / (float)undersampledMajority:F2}");
+            [VectorType]
+            public float[] Features { get; set; }
+            public long Label { get; set; }
         }
     }
 }

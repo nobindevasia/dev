@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.ML;
 using Microsoft.ML.Data;
@@ -8,80 +7,100 @@ using D2G.Iris.ML.Training;
 
 namespace D2G.Iris.ML.Training
 {
-    public class BinaryClassificationTrainer 
+    public class BinaryClassificationTrainer
     {
+        private readonly MLContext _mlContext;
+        private readonly TrainerFactory _trainerFactory;
+
         public BinaryClassificationTrainer(MLContext mlContext, TrainerFactory trainerFactory)
-            : base(mlContext, trainerFactory)
         {
+            _mlContext = mlContext;
+            _trainerFactory = trainerFactory;
         }
 
-        public override async Task<IDataView> PrepareDataView(
-            MLContext mlContext,
-            ProcessedData processedData,
-            string[] featureNames,
-            string targetField)
-        {
-            var rows = processedData.Data.Select(dict => new BinaryRow
-            {
-                Features = featureNames.Select(field =>
-                    dict[field] == null ? 0.0f : Convert.ToSingle(dict[field])).ToArray(),
-                Label = Convert.ToBoolean(dict[targetField])
-            }).ToList();
-            var schema = SchemaDefinition.Create(typeof(BinaryRow));
-            schema["Features"].ColumnType = new VectorDataViewType(NumberDataViewType.Single, featureNames.Length);
-            return mlContext.Data.LoadFromEnumerable(rows, schema);
-        }
-
-        public override async Task<ITransformer> TrainModel(
+        public async Task<ITransformer> TrainModel(
             MLContext mlContext,
             IDataView dataView,
             string[] featureNames,
             ModelConfig config,
             ProcessedData processedData)
         {
-            var pipeline = GetBasePipeline(mlContext);
-            var trainer = _trainerFactory.GetTrainer(config.ModelType, config.TrainingParameters);
-
-            var trainingPipeline = pipeline
-                .Append(trainer)
-                .Append(mlContext.Transforms.CopyColumns("Probability", "Score"));
-
-            var splitData = mlContext.Data.TrainTestSplit(dataView, testFraction: config.TrainingParameters.TestFraction);
             Console.WriteLine($"\nStarting binary classification model training using {config.TrainingParameters.Algorithm}...");
 
-            // Train 
-            var trainedModel = await Task.Run(() => trainingPipeline.Fit(splitData.TrainSet));
+            try
+            {
+                // Split data
+                var dataSplit = mlContext.Data.TrainTestSplit(
+                    dataView,
+                    testFraction: config.TrainingParameters.TestFraction,
+                    seed: 42);
 
-            // Evaluate
-            var metrics = mlContext.BinaryClassification.Evaluate(
-                trainedModel.Transform(splitData.TestSet),
-                labelColumnName: "Label",
-                predictedLabelColumnName: "PredictedLabel",
-                scoreColumnName: "Probability");
+                // Get trainer
+                var trainer = _trainerFactory.GetTrainer(
+                    config.ModelType,
+                    config.TrainingParameters);
 
-            Console.WriteLine(metrics.ConfusionMatrix.GetFormattedConfusionTable());
-            ConsoleHelper.PrintBinaryClassificationMetrics(config.TrainingParameters.Algorithm, metrics);
+                // Create training pipeline
+                var pipeline = _mlContext.Transforms
+    .CopyColumns("Label", config.TargetField)
+    .Append(_mlContext.Transforms.NormalizeMinMax("Features"))  // Add normalization
+    .Append(_mlContext.Transforms.Conversion.MapValueToKey("Label"))  // Convert label to key
+    .Append(trainer)
+    .Append(_mlContext.Transforms.CopyColumns("Probability", "Score"));
 
-            // Save
-            var modelPath = $"BinaryClassification_{config.TrainingParameters.Algorithm}_Model.zip";
-            mlContext.Model.Save(trainedModel, dataView.Schema, modelPath);
-            Console.WriteLine($"Model saved to {modelPath}");
+                // Before training, verify data schema
+                var previewSet = dataSplit.TrainSet.Preview();
+                Console.WriteLine("Training Data Schema:");
+                foreach (var col in previewSet.Schema)
+                {
+                    Console.WriteLine($"Column: {col.Name}, Type: {col.Type}");
+                }
 
-            await ModelHelper.CreateModelInfo<BinaryClassificationMetrics, float>(
-                metrics,
-                dataView,
-                featureNames,
-                config,
-                processedData
-            );
-            return trainedModel;
+                // Train model
+                var model = await Task.Run(() => pipeline.Fit(dataSplit.TrainSet));
+
+                // Evaluate model
+                Console.WriteLine("Evaluating model...");
+                var predictions = model.Transform(dataSplit.TestSet);
+                var metrics = mlContext.BinaryClassification.Evaluate(
+                    predictions,
+                    labelColumnName: "Label",
+                    scoreColumnName: "Score",
+                    predictedLabelColumnName: "PredictedLabel");
+
+                // Print metrics
+                PrintMetrics(metrics);
+
+                // Save model
+                var modelPath = $"BinaryClassification_{config.TrainingParameters.Algorithm}_Model.zip";
+                mlContext.Model.Save(model, dataView.Schema, modelPath);
+                Console.WriteLine($"Model saved to: {modelPath}");
+
+                return model;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error during model training: {ex.Message}");
+                throw;
+            }
         }
 
-        private class BinaryRow
+        private void PrintMetrics(BinaryClassificationMetrics metrics)
         {
-            [VectorType]
-            public float[] Features { get; set; }
-            public bool Label { get; set; }
+            Console.WriteLine();
+            Console.WriteLine("Model Evaluation Metrics:");
+            Console.WriteLine("--------------------------------");
+            Console.WriteLine($"Accuracy: {metrics.Accuracy:F4}");
+            Console.WriteLine($"Area Under ROC Curve: {metrics.AreaUnderRocCurve:F4}");
+            Console.WriteLine($"Area Under PR Curve: {metrics.AreaUnderPrecisionRecallCurve:F4}");
+            Console.WriteLine($"F1 Score: {metrics.F1Score:F4}");
+            Console.WriteLine($"Positive Precision: {metrics.PositivePrecision:F4}");
+            Console.WriteLine($"Negative Precision: {metrics.NegativePrecision:F4}");
+            Console.WriteLine($"Positive Recall: {metrics.PositiveRecall:F4}");
+            Console.WriteLine($"Negative Recall: {metrics.NegativeRecall:F4}");
+            Console.WriteLine();
+            Console.WriteLine("Confusion Matrix:");
+            Console.WriteLine(metrics.ConfusionMatrix.GetFormattedConfusionTable());
         }
     }
 }
