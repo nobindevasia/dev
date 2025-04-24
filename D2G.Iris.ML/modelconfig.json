@@ -3,7 +3,6 @@
     "author": "Nobin Devasia",
     "description": "Model for Agenitor 408",
     "modelType": "BinaryClassification",
-    "targetField": "Label",
 
     "database": {
       "server": "sim-01-02",
@@ -37,63 +36,84 @@
       },
       "testFraction": 0.2
     },
+
     "inputFields": [
       {
         "name": "TemperatureWaterEngineCircuitOutlet",
-        "isEnabled": true
+        "isEnabled": true,
+        "dataType": "float"
       },
       {
         "name": "TemperatureWaterEngineCircuitInlet",
-        "isEnabled": true
+        "isEnabled": true,
+        "dataType": "float"
       },
       {
         "name": "PositionThrottleValveA",
-        "isEnabled": true
+        "isEnabled": true,
+        "dataType": "float"
       },
       {
         "name": "TemperatureIntakeAirA",
-        "isEnabled": true
+        "isEnabled": true,
+        "dataType": "float"
       },
       {
         "name": "SpeedRelativeDumpCooler",
-        "isEnabled": true
+        "isEnabled": true,
+        "dataType": "float"
       },
       {
         "name": "SpeedEngine",
-        "isEnabled": true
+        "isEnabled": true,
+        "dataType": "float"
       },
       {
         "name": "TemperatureRoom",
-        "isEnabled": true
+        "isEnabled": true,
+        "dataType": "float"
       },
       {
         "name": "ActivePower",
-        "isEnabled": true
+        "isEnabled": true,
+        "dataType": "float"
       },
       {
         "name": "TemperatureGasMixtureA",
-        "isEnabled": true
+        "isEnabled": true,
+        "dataType": "float"
       },
       {
         "name": "TemperatureWaterCoolerMixtureCircuitInlet",
-        "isEnabled": true
+        "isEnabled": true,
+        "dataType": "float"
       },
       {
         "name": "TemperatureExhaustA",
-        "isEnabled": true
+        "isEnabled": true,
+        "dataType": "float"
       },
       {
         "name": "TemperatureExhaustB",
-        "isEnabled": true
+        "isEnabled": true,
+        "dataType": "float"
       },
       {
         "name": "PositionGasMixer",
-        "isEnabled": true
+        "isEnabled": true,
+        "dataType": "float"
       },
       {
         "name": "PressureWaterCoolerMixtureCircuit",
-        "isEnabled": true
+        "isEnabled": true,
+        "dataType": "float
       }
-    ]
+    ],
+
+    "targetField": "Label",
+    "dataType": "bool"
+
+
   }
 }
+
