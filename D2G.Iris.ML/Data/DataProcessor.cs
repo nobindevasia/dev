@@ -15,21 +15,21 @@ namespace D2G.Iris.ML.Data
         public async Task<ProcessedData> ProcessData(
             MLContext mlContext,
             IDataView rawData,
-            string[] enabledFields,
+            InputField[] enabledFields,
             ModelConfig config
             )
         {
             Console.WriteLine("\n=============== Processing Data ===============");
 
             IDataView transformedData = rawData;
-            string[] finalFeatureNames = enabledFields.Where(f => f != config.TargetField).ToArray();
+            string[] finalFeatureNames = enabledFields.Where(f => f.Name != config.TargetField).Select(f => f.Name).ToArray();
             string selectionReport = string.Empty;
 
             // Original row count
             long originalCount = rawData.GetRowCount() ?? 0;
             long balancedCount = originalCount;
 
-            // Create feature vector
+            // Create feature vector with appropriate data type awareness
             var featurePipeline = mlContext.Transforms
                 .Concatenate("Features", finalFeatureNames);
 
@@ -52,7 +52,7 @@ namespace D2G.Iris.ML.Data
                 // Data Balancing
                 if (config.DataBalancing.Method != DataBalanceMethod.None)
                 {
-                    var balancer = new SmoteDataBalancer();
+                    var balancer = CreateDataBalancer(config.DataBalancing.Method);
                     transformedData = await balancer.BalanceDataset(
                         mlContext,
                         transformedData,
@@ -66,7 +66,7 @@ namespace D2G.Iris.ML.Data
                 // Feature Selection
                 if (config.FeatureEngineering.Method != FeatureSelectionMethod.None)
                 {
-                    var selector = new CorrelationFeatureSelector(mlContext); 
+                    var selector = CreateFeatureSelector(mlContext, config.FeatureEngineering.Method);
                     var result = await selector.SelectFeatures(
                         mlContext,
                         transformedData,
@@ -86,7 +86,7 @@ namespace D2G.Iris.ML.Data
                 // Feature Selection first
                 if (config.FeatureEngineering.Method != FeatureSelectionMethod.None)
                 {
-                    var selector = new CorrelationFeatureSelector(mlContext);
+                    var selector = CreateFeatureSelector(mlContext, config.FeatureEngineering.Method);
                     var result = await selector.SelectFeatures(
                         mlContext,
                         transformedData,
@@ -104,7 +104,7 @@ namespace D2G.Iris.ML.Data
                 // Then Data Balancing
                 if (config.DataBalancing.Method != DataBalanceMethod.None)
                 {
-                    var balancer = new SmoteDataBalancer();
+                    var balancer = CreateDataBalancer(config.DataBalancing.Method);
                     transformedData = await balancer.BalanceDataset(
                         mlContext,
                         transformedData,
@@ -115,27 +115,6 @@ namespace D2G.Iris.ML.Data
                     Console.WriteLine($"Data balanced. New count: {balancedCount}");
                 }
             }
-
-            // Save to SQL if configured
-            //if (!string.IsNullOrEmpty(config.Database.OutputTableName))
-            //{
-            //    try
-            //    {
-            //        sqlHandler.SaveDataViewToTable(
-            //            mlContext,
-            //            transformedData,
-            //            config.Database.OutputTableName,
-            //            finalFeatureNames,
-            //            config.TargetField,
-            //            config.ModelType);
-
-            //        Console.WriteLine($"Processed data saved to: {config.Database.OutputTableName}");
-            //    }
-            //    catch (Exception ex)
-            //    {
-            //        Console.WriteLine($"Error saving processed data: {ex.Message}");
-            //    }
-            //}
 
             return new ProcessedData
             {
@@ -148,6 +127,27 @@ namespace D2G.Iris.ML.Data
                 DataBalancingMethod = config.DataBalancing.Method,
                 DataBalancingExecutionOrder = config.DataBalancing.ExecutionOrder,
                 FeatureSelectionExecutionOrder = config.FeatureEngineering.ExecutionOrder
+            };
+        }
+
+        private dynamic CreateDataBalancer(DataBalanceMethod method)
+        {
+            return method switch
+            {
+                DataBalanceMethod.SMOTE => new SmoteDataBalancer(),
+                DataBalanceMethod.ADASYN => new SmoteDataBalancer(), // Use SMOTE for now
+                _ => new NoDataBalancer()
+            };
+        }
+
+        private dynamic CreateFeatureSelector(MLContext mlContext, FeatureSelectionMethod method)
+        {
+            return method switch
+            {
+                FeatureSelectionMethod.Correlation => new CorrelationFeatureSelector(mlContext),
+                FeatureSelectionMethod.Forward => new CorrelationFeatureSelector(mlContext), // Use Correlation for now
+                FeatureSelectionMethod.PCA => new CorrelationFeatureSelector(mlContext), // Use Correlation for now
+                _ => new NoFeatureSelector(mlContext)
             };
         }
     }

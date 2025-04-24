@@ -6,6 +6,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.ML;
 using Microsoft.ML.Data;
 using D2G.Iris.ML.Core.Enums;
+using D2G.Iris.ML.Core.Models;
 
 namespace D2G.Iris.ML.Data
 {
@@ -14,7 +15,7 @@ namespace D2G.Iris.ML.Data
     /// tracks and prints how many rows were loaded, handles schema-qualified names,
     /// and can print a preview of loaded rows.
     /// </summary>
-    public class DatabaseDataLoader 
+    public class DatabaseDataLoader
     {
         private readonly MLContext _mlContext;
         private IDataView _lastLoadedDataView;
@@ -32,13 +33,20 @@ namespace D2G.Iris.ML.Data
         public IDataView LoadDataFromSql(
             string sqlConnectionString,
             string tableName,
-            IEnumerable<string> featureColumns,
+            IEnumerable<InputField> inputFields,
             ModelType modelType,
             string targetColumn,
+            InputField targetField,
             string whereSyntax = "",
             int previewRowCount = 5)
         {
             Console.WriteLine("=============== Loading Data into IDataView ===============");
+
+            // Filter enabled fields
+            var enabledFields = inputFields.Where(f => f.IsEnabled).ToList();
+
+            // Get feature column names
+            var featureColumns = enabledFields.Select(f => f.Name).ToList();
 
             // Handle schema-qualified table names: "schema.table"
             string fullTableName = tableName.Contains('.')
@@ -68,24 +76,20 @@ namespace D2G.Iris.ML.Data
             // 2) Define loader schema (feature columns)
             var loaderCols = new List<DatabaseLoader.Column>();
             int idx = 0;
-            foreach (var feat in featureColumns)
+            foreach (var field in enabledFields)
             {
                 loaderCols.Add(new DatabaseLoader.Column(
-                    name: feat,
-                    dbType: DbType.Single,
+                    name: field.Name,
+                    dbType: field.GetDbType(),
                     index: idx++
                 ));
             }
 
-            // 3) Add label column with numeric DbType (to match actual SQL type)
-            //    Use Int64 to accommodate SQL bigint, then transform downstream as needed
-            DbType labelDbType = modelType switch
-            {
-                ModelType.BinaryClassification => DbType.Int64,
-                ModelType.MultiClassClassification => DbType.Int64,
-                ModelType.Regression => DbType.Single,
-                _ => DbType.Int64
-            };
+            // 3) Add label column with type from target field configuration
+            DbType labelDbType = targetField != null
+                ? targetField.GetDbType()
+                : GetDefaultDbTypeForModelType(modelType);
+
             loaderCols.Add(new DatabaseLoader.Column(
                 name: targetColumn,
                 dbType: labelDbType,
@@ -126,6 +130,17 @@ namespace D2G.Iris.ML.Data
 
             Console.WriteLine("==========================================================");
             return dataView;
+        }
+
+        private DbType GetDefaultDbTypeForModelType(ModelType modelType)
+        {
+            return modelType switch
+            {
+                ModelType.BinaryClassification => DbType.Boolean,
+                ModelType.MultiClassClassification => DbType.Int64,
+                ModelType.Regression => DbType.Single,
+                _ => DbType.Boolean
+            };
         }
 
         /// <summary>

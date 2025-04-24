@@ -5,7 +5,7 @@ using D2G.Iris.ML.Core.Models;
 
 namespace D2G.Iris.ML.DataBalancing
 {
-    public class NoDataBalancer
+    public class NoDataBalancer 
     {
         public Task<IDataView> BalanceDataset(
             MLContext mlContext,

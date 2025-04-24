@@ -23,7 +23,7 @@ namespace D2G.Iris.ML.Training
         public async Task<ITransformer> TrainModel(
             MLContext mlContext,
             IDataView dataView,
-            string[] featureNames,
+            InputField[] inputFields,
             ModelConfig config,
             ProcessedData processedData)
         {
@@ -31,68 +31,85 @@ namespace D2G.Iris.ML.Training
 
             try
             {
-                // Step 1: Read the data with our required structure
-                var featureVectors = mlContext.Data.CreateEnumerable<FeatureVector>(dataView, reuseRowObject: false).ToList();
-                Console.WriteLine($"Loaded {featureVectors.Count} records for training");
+                // Get feature column names
+                string[] featureNames = processedData.FeatureNames;
 
-                // Step 2: Find the feature vector size (using featureNames length or max vector size in data)
-                int vectorSize = featureNames?.Length > 0
-                    ? featureNames.Length
-                    : featureVectors.Max(v => v.Features?.Length ?? 0);
-                Console.WriteLine($"Using feature vector size: {vectorSize}");
+                // Use the IDataView directly without converting to custom classes
+                // This maintains the data types throughout the pipeline
 
-                // Step 3: Create binary classification rows with fixed-length features
-                var binaryRows = featureVectors.Select(row => new BinaryRow
-                {
-                    // Create a new array of exact size and copy/pad the features
-                    Features = CreateFixedLengthArray(row.Features, vectorSize),
-                    Label = row.Label > 0  // Convert numeric label to boolean
-                }).ToList();
-
-                // Step 4: Create schema that explicitly defines vector size
-                var schema = SchemaDefinition.Create(typeof(BinaryRow));
-                schema["Features"].ColumnType = new VectorDataViewType(NumberDataViewType.Single, vectorSize);
-
-                // Step 5: Load data with fixed schema
-                var typedData = mlContext.Data.LoadFromEnumerable(binaryRows, schema);
-
-                // Step 6: Split data into training and test sets
+                // Split data into training and test sets
                 var splitData = mlContext.Data.TrainTestSplit(
-                    typedData,
+                    dataView,
                     testFraction: config.TrainingParameters.TestFraction,
                     seed: 42);
 
-                // Step 7: Get the right trainer from factory
+                Console.WriteLine($"Training set size: {splitData.TrainSet.GetRowCount() ?? 0} rows");
+                Console.WriteLine($"Test set size: {splitData.TestSet.GetRowCount() ?? 0} rows");
+
+                // The label column should be casted to Boolean for binary classification
+                // Only do this if the target field is not already a boolean
+                IDataView trainData = splitData.TrainSet;
+                IDataView testData = splitData.TestSet;
+
+                var targetDataType = config.DataType?.ToLower() ?? "bool";
+                if (targetDataType != "bool")
+                {
+                    // Create transformation to convert label to boolean
+                    var labelPipeline = mlContext.Transforms.Conversion.MapValue(
+                        outputColumnName: "Label",
+                        inputColumnName: config.TargetField,
+                        map: new[] { new KeyValuePair<long, bool>(0, false), new KeyValuePair<long, bool>(1, true) }
+                    );
+
+                    trainData = labelPipeline.Fit(splitData.TrainSet).Transform(splitData.TrainSet);
+                    testData = labelPipeline.Fit(splitData.TestSet).Transform(splitData.TestSet);
+                }
+
+                // Get the trainer from factory
                 var trainer = _trainerFactory.GetTrainer(
                     config.ModelType,
                     config.TrainingParameters);
 
-                // Step 8: Create simple training pipeline
+                // Create training pipeline
+                // Keep it simple, focusing on maintaining the types
                 var pipeline = mlContext.Transforms
                     .NormalizeMinMax("Features")
-                    .Append(trainer)
-                    .Append(mlContext.Transforms.CopyColumns("Probability", "Score"));
+                    .AppendCacheCheckpoint(mlContext)
+                    .Append(trainer);
 
-                // Step 9: Train the model
+                // Train the model
                 Console.WriteLine("Training model...");
-                var model = await Task.Run(() => pipeline.Fit(splitData.TrainSet));
+                var model = await Task.Run(() => pipeline.Fit(trainData));
 
-                // Step 10: Evaluate the model
+                // Evaluate the model
                 Console.WriteLine("Evaluating model...");
-                var predictions = model.Transform(splitData.TestSet);
+                var predictions = model.Transform(testData);
                 var metrics = mlContext.BinaryClassification.Evaluate(
                     predictions,
                     labelColumnName: "Label",
                     scoreColumnName: "Score",
                     predictedLabelColumnName: "PredictedLabel");
 
-                // Step 11: Print metrics
+                // Print metrics
                 PrintMetrics(metrics);
 
-                // Step 12: Save the model
+                // Save the model
                 var modelPath = $"BinaryClassification_{config.TrainingParameters.Algorithm}_Model.zip";
-                mlContext.Model.Save(model, typedData.Schema, modelPath);
+                mlContext.Model.Save(model, dataView.Schema, modelPath);
                 Console.WriteLine($"Model saved to: {modelPath}");
+
+                // Create standardized metrics
+                var standardizedMetrics = new StandardizedBinaryMetrics
+                {
+                    Accuracy = metrics.Accuracy,
+                    AreaUnderRocCurve = metrics.AreaUnderRocCurve,
+                    PositivePrecision = metrics.PositivePrecision,
+                    PositiveRecall = metrics.PositiveRecall,
+                    F1Score = metrics.F1Score,
+                    AreaUnderPrecisionRecallCurve = metrics.AreaUnderPrecisionRecallCurve
+                };
+
+                Console.WriteLine(standardizedMetrics.CreateStandardizedMetricsMsg());
 
                 return model;
             }
@@ -101,22 +118,6 @@ namespace D2G.Iris.ML.Training
                 Console.WriteLine($"Error during model training: {ex.Message}");
                 throw;
             }
-        }
-
-        // Helper method to create fixed-length feature arrays
-        private float[] CreateFixedLengthArray(float[] source, int length)
-        {
-            // Create new array of the required length
-            var result = new float[length];
-
-            // If source exists, copy values (up to the minimum of source length and required length)
-            if (source != null && source.Length > 0)
-            {
-                int copyLength = Math.Min(source.Length, length);
-                Array.Copy(source, result, copyLength);
-            }
-
-            return result;
         }
 
         private void PrintMetrics(BinaryClassificationMetrics metrics)
@@ -135,21 +136,6 @@ namespace D2G.Iris.ML.Training
             Console.WriteLine();
             Console.WriteLine("Confusion Matrix:");
             Console.WriteLine(metrics.ConfusionMatrix.GetFormattedConfusionTable());
-        }
-
-        // Schema classes for data
-        private class BinaryRow
-        {
-            [VectorType]
-            public float[] Features { get; set; }
-            public bool Label { get; set; }
-        }
-
-        private class FeatureVector
-        {
-            [VectorType]
-            public float[] Features { get; set; }
-            public long Label { get; set; }
         }
     }
 }

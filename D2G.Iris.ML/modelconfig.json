@@ -106,14 +106,13 @@
       {
         "name": "PressureWaterCoolerMixtureCircuit",
         "isEnabled": true,
-        "dataType": "float
+        "dataType": "float"
+      },
+      {
+        "targetField": "Label",
+        "dataType": "bool"
       }
-    ],
-
-    "targetField": "Label",
-    "dataType": "bool"
-
-
+    ]
   }
 }
 

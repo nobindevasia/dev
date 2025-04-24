@@ -7,8 +7,7 @@ using D2G.Iris.ML.Configuration;
 using D2G.Iris.ML.Data;
 using D2G.Iris.ML.Training;
 using D2G.Iris.ML.Core.Enums;
-using static Microsoft.ML.MulticlassClassificationCatalog;
-using static Microsoft.ML.RegressionCatalog;
+using D2G.Iris.ML.Core.Models;
 
 namespace D2G.Iris.ML
 {
@@ -32,8 +31,15 @@ namespace D2G.Iris.ML
                 // Get enabled fields
                 var enabledFields = config.InputFields
                     .Where(f => f.IsEnabled)
-                    .Select(f => f.Name)
                     .ToArray();
+
+                // Create or find target field definition
+                var targetField = new InputField
+                {
+                    Name = config.TargetField,
+                    IsEnabled = true,
+                    DataType = config.DataType ?? GetDefaultDataTypeForModelType(config.ModelType)
+                };
 
                 // Create ML.NET context with fixed seed for reproducibility
                 var mlContext = new MLContext(seed: 42);
@@ -46,6 +52,7 @@ namespace D2G.Iris.ML
                     enabledFields,
                     config.ModelType,
                     config.TargetField,
+                    targetField,
                     config.Database.WhereClause);
 
                 // Process the data
@@ -71,7 +78,7 @@ namespace D2G.Iris.ML
                 var model = await modelTrainer.TrainModel(
                     mlContext,
                     processedData.Data,
-                    processedData.FeatureNames,
+                    enabledFields,
                     config,
                     processedData);
 
@@ -87,6 +94,17 @@ namespace D2G.Iris.ML
                 }
                 throw;
             }
+        }
+
+        private static string GetDefaultDataTypeForModelType(ModelType modelType)
+        {
+            return modelType switch
+            {
+                ModelType.BinaryClassification => "bool",
+                ModelType.MultiClassClassification => "int",
+                ModelType.Regression => "float",
+                _ => "float"
+            };
         }
     }
 }
