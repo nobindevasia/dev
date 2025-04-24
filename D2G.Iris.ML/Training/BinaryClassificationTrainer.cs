@@ -4,12 +4,11 @@ using System.Threading.Tasks;
 using Microsoft.ML;
 using Microsoft.ML.Data;
 using D2G.Iris.ML.Core.Models;
-using D2G.Iris.ML.Utils;
 using D2G.Iris.ML.Training;
 
 namespace D2G.Iris.ML.Training
 {
-    public class BinaryClassificationTrainer : BaseModelTrainer
+    public class BinaryClassificationTrainer 
     {
         public BinaryClassificationTrainer(MLContext mlContext, TrainerFactory trainerFactory)
             : base(mlContext, trainerFactory)

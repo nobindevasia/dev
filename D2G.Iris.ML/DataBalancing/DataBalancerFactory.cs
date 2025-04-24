@@ -1,6 +1,5 @@
 ﻿using System;
 using D2G.Iris.ML.Core.Enums;
-using D2G.Iris.ML.Core.Interfaces;
 using D2G.Iris.ML.Core.Models;
 using D2G.Iris.ML.DataBalancing;
 

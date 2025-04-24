@@ -1,7 +1,6 @@
 ﻿using System;
 using Microsoft.ML;
 using D2G.Iris.ML.Core.Enums;
-using D2G.Iris.ML.Core.Interfaces;
 using D2G.Iris.ML.Core.Models;
 
 namespace D2G.Iris.ML.FeatureEngineering
@@ -19,10 +18,9 @@ namespace D2G.Iris.ML.FeatureEngineering
         {
             return method switch
             {
-               // FeatureSelectionMethod.None => new NoFeatureSelector(_mlContext),
+                FeatureSelectionMethod.None => new NoFeatureSelector(_mlContext),
                 FeatureSelectionMethod.Correlation => new CorrelationFeatureSelector(_mlContext),
-               // FeatureSelectionMethod.PCA => new PCAFeatureSelector(_mlContext),
-               // FeatureSelectionMethod.Forward => new ForwardFeatureSelector(_mlContext),
+       
                 _ => throw new ArgumentException($"Unsupported feature selection method: {method}")
             };
         }

@@ -1,7 +1,6 @@
 ﻿using System;
 using Microsoft.ML;
 using D2G.Iris.ML.Core.Enums;
-using D2G.Iris.ML.Core.Interfaces;
 using D2G.Iris.ML.Training;
 
 namespace D2G.Iris.ML.Training

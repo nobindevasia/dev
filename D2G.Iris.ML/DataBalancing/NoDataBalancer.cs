@@ -6,7 +6,7 @@ using D2G.Iris.ML.DataBalancing;
 
 namespace D2G.Iris.ML.DataBalancing
 {
-    public class NoDataBalancer : BaseDataBalancer
+    public class NoDataBalancer 
     {
         public override Task<List<Dictionary<string, object>>> BalanceDataset(
             List<Dictionary<string, object>> data,

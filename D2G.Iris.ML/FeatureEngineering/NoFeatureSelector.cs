@@ -7,7 +7,7 @@ using D2G.Iris.ML.FeatureEngineering;
 
 namespace D2G.Iris.ML.FeatureEngineering
 {
-    public class NoFeatureSelector : BaseFeatureSelector
+    public class NoFeatureSelector
     {
         public NoFeatureSelector(MLContext mlContext) : base(mlContext)
         {
